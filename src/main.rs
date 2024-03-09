@@ -9,11 +9,11 @@ async fn main() {
     // todo load rom
     loop {
         cpu.cycle();
-
+        
+        // todo poll input
         clear_background(BLACK);
 
-        draw_text("IT WORKS!", 20.0, 20.0, 30.0, DARKGRAY);
-
+        //todo draw gfx
         next_frame().await
     }
 }

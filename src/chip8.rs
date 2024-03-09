@@ -2,6 +2,10 @@
 // http://devernay.free.fr/hacks/chip8/C8TECH10.HTM
 // https://www.youtube.com/watch?v=YHkBgR6yvbY
 
+use core::panic;
+
+use macroquad::rand::{rand, srand};
+
 const FONTSET: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -22,7 +26,7 @@ const FONTSET: [u8; 80] = [
 ];
 
 pub struct CHIP8 {
-    opcode: u16,        // every opcode is 2 bytes
+    opcode: u16,        // every current_opcode is 2 bytes
     memory: [u8; 4096], // 4k memory
     regs: [u8; 16],     // 15 general puporse registers + 1 carry flag
     index: u16,         // index register
@@ -41,6 +45,9 @@ pub struct CHIP8 {
 
 impl Default for CHIP8 {
     fn default() -> Self {
+        // seed rand
+        srand(1);
+
         let mut memory: [u8; 4096] = [0; 4096];
         // load the fontset into memory
         memory[0..80].copy_from_slice(&FONTSET);
@@ -68,17 +75,21 @@ impl CHIP8 {
     }
 
     pub fn cycle(&mut self) {
-        self.opcode =
-            (self.memory[self.pc as usize] << 8 | self.memory[(self.pc + 1) as usize]) as u16;
+        if self.pc > 0xFFF {
+            panic!("Opcode out of range! Program Error!");
+        }
 
-        //X000
+        self.opcode = (self.memory[self.pc as usize] as u16) << 8
+            | self.memory[(self.pc + 1) as usize] as u16;
+
         let first = self.opcode >> 12;
 
         match first {
             Opcode::SYS => {
                 match self.opcode {
-                    Opcode::SYS_CLS => self.gfx[0..64 * 32].fill(0),
-                    Opcode::SYS_RET => {
+                    0x00E => self.gfx[0..64 * 32].fill(0), // clear the screan
+                    0x0EE => {
+                        // return from subroutine
                         // decrement stack pointer
                         self.sp -= 1;
                         // get the addr needed to return
@@ -199,29 +210,151 @@ impl CHIP8 {
             }
             Opcode::SET_CXKK => {
                 // Set Vx = random byte AND kk.
-                let x = (self.opcode & 0x0F00) >> 8;
+                let x = ((self.opcode & 0x0F00) >> 8) as usize;
                 let kk = self.opcode & 0x00FF;
+
+                self.regs[x] = (rand() & kk as u32) as u8;
+                self.inc_pc();
+            }
+            Opcode::DISPLAY_DXYN => {
+                // Display n-byte sprite starting at memory location I at (Vx, Vy), set VF = collision.
+                let reg_x = self.regs[((self.opcode & 0x0F00) >> 8) as usize];
+                let reg_y = self.regs[((self.opcode & 0x00F0) >> 4) as usize];
+                let height = self.opcode & 0x000F;
+
+                let mut y = 0;
+                while y < height {
+                    let pixel = self.memory[(self.index + y) as usize];
+                    let mut x = 0;
+                    while x < 8 {
+                        let msb: u8 = 0x80;
+                        if pixel & (msb >> x) != 0 {
+                            let tx = (reg_x + x) as u16 % 64;
+                            let ty = (reg_y as u16 + y) % 32;
+
+                            let idx = (tx + ty * 64) as usize;
+                            self.gfx[idx] ^= 1;
+
+                            if self.gfx[idx] == 0 {
+                                self.regs[0xF] = 1;
+                            }
+                        }
+                        x += 1;
+                    }
+                    y += 1;
+                }
+                self.inc_pc();
+            }
+            Opcode::SKIP_EX => {
+                let x = ((self.opcode & 0x0F00) >> 8) as usize;
+                let mode = self.opcode & 0x00FF;
+                match mode {
+                    // Skip next instruction if key with the value of Vx is pressed.
+                    0x9E => {
+                        if self.keys[self.regs[x] as usize] == 1 {
+                            self.inc_pc();
+                        }
+                    }
+                    // Skip next instruction if key with the value of Vx is not pressed.
+                    0xA1 => {
+                        if self.keys[self.regs[x] as usize] != 1 {
+                            self.inc_pc();
+                        }
+                    }
+                    _ => (),
+                }
+                self.inc_pc();
+            }
+            Opcode::MISC_FX => {
+                let x = ((self.opcode & 0x0F00) >> 8) as usize;
+                let mode = self.opcode & 0x00FF;
+
+                match mode {
+                    0x07 => self.regs[x] = self.d_timer, // Set Vx = delay timer value.
+                    0x0A => {
+                        let mut key_pressed = false;
+
+                        for (i, v) in self.keys.iter().enumerate() {
+                            if *v != 0 {
+                                self.regs[x] = i as u8;
+                                key_pressed = true;
+                                break;
+                            }
+                        }
+
+                        if !key_pressed {
+                            return;
+                        }
+                    }
+                    0x15 => self.d_timer = self.regs[x], // Set delay timer = Vx.
+                    0x18 => self.s_timer = self.regs[x], // Set sound timer = Vx.
+                    0x1E => self.index += self.regs[x] as u16, // Set I = I + Vx.
+                    0x29 => {
+                        // Set I = location of sprite for digit Vx.
+                        if self.regs[x] < 16 {
+                            self.index = (self.regs[x] * 0x5) as u16;
+                        }
+                    }
+                    0x33 => {
+                        // Store BCD representation of Vx in memory locations I, I+1, and I+2.
+                        let idx = self.index as usize;
+                        self.memory[idx] = self.regs[x] / 100;
+                        self.memory[idx + 1] = (self.regs[x] / 10) % 10;
+                        self.memory[idx + 2] = self.regs[x] % 10;
+                    }
+                    0x55 => {
+                        // Store registers V0 through Vx in memory starting at location I.
+                        let mut i: usize = 0;
+                        while i <= x {
+                            self.memory[i + self.index as usize] = self.regs[i];
+                            i += 1;
+                        }
+                    }
+                    0x65 => {
+                        // Read registers V0 through Vx from memory starting at location I.
+                        let mut i: usize = 0;
+                        while i <= x {
+                            self.regs[i] = self.memory[i + self.index as usize];
+                            i += 1;
+                        }
+                    }
+                    _ => (),
+                }
+                self.inc_pc();
             }
             _ => (),
         }
+
+        if self.d_timer > 0 {
+            self.d_timer -= 1;
+        }
+
+        if self.s_timer > 0 {
+            self.s_timer -= 1;
+        }
+    }
+    
+    pub fn load_rom(filepath: &str) {
+
     }
 }
 
 struct Opcode;
 impl Opcode {
-    pub const SYS: u16 = 0x0;
-    pub const SYS_CLS: u16 = 0x00E; // clear screen
-    pub const SYS_RET: u16 = 0x0EE; // return from subroutine
-    pub const JMP_1NNN: u16 = 0x1; // Jump addr
-    pub const CALL_2NNN: u16 = 0x2; // Call addr
-    pub const SKIP_3XKK: u16 = 0x3;
-    pub const SKIP_4XKK: u16 = 0x4;
-    pub const SKIP_5YX0: u16 = 0x5;
-    pub const SET_6XKK: u16 = 0x6;
-    pub const SET_7XKK: u16 = 0x7;
-    pub const SET_8XY: u16 = 0x8;
-    pub const SKIP_9YX0: u16 = 0x9;
-    pub const SET_ANNN: u16 = 0xA;
-    pub const JMP_BNNN: u16 = 0xB;
-    pub const SET_CXKK: u16 = 0xC;
+    const SYS: u16 = 0x0;
+    const JMP_1NNN: u16 = 0x1;
+    const CALL_2NNN: u16 = 0x2;
+    const SKIP_3XKK: u16 = 0x3;
+    const SKIP_4XKK: u16 = 0x4;
+    const SKIP_5YX0: u16 = 0x5;
+    const SET_6XKK: u16 = 0x6;
+    const SET_7XKK: u16 = 0x7;
+    const SET_8XY: u16 = 0x8;
+    const SKIP_9YX0: u16 = 0x9;
+    const SET_ANNN: u16 = 0xA;
+    const JMP_BNNN: u16 = 0xB;
+    const SET_CXKK: u16 = 0xC;
+    const DISPLAY_DXYN: u16 = 0xD;
+    const SKIP_EX: u16 = 0xE;
+    const MISC_FX: u16 = 0xF;
 }
