@@ -3,6 +3,7 @@
 // https://www.youtube.com/watch?v=YHkBgR6yvbY
 
 use core::panic;
+use std::fs;
 
 use macroquad::rand::{rand, srand};
 
@@ -41,6 +42,8 @@ pub struct CHIP8 {
     sp: u16,          // stack pointer
 
     keys: [u8; 16], // pressed keyboard keys
+
+    is_rom_loaded: bool,
 }
 
 impl Default for CHIP8 {
@@ -51,8 +54,7 @@ impl Default for CHIP8 {
         let mut memory: [u8; 4096] = [0; 4096];
         // load the fontset into memory
         memory[0..80].copy_from_slice(&FONTSET);
-        println!("{:?}", &memory[0..100]);
-
+        // println!("{:?}", &memory[0..100]);
         Self {
             opcode: 0,
             memory,
@@ -65,6 +67,7 @@ impl Default for CHIP8 {
             stack: [0; 16],
             sp: 0,
             keys: [0; 16],
+            is_rom_loaded: false,
         }
     }
 }
@@ -83,6 +86,10 @@ impl CHIP8 {
             | self.memory[(self.pc + 1) as usize] as u16;
 
         let first = self.opcode >> 12;
+
+        if !self.is_rom_loaded {
+            return;
+        }
 
         match first {
             Opcode::SYS => {
@@ -141,7 +148,6 @@ impl CHIP8 {
             }
             Opcode::SET_7XKK => {
                 let x = (self.opcode & 0x0F00) >> 8;
-                // Set Vx += kk
                 self.regs[x as usize] += (self.opcode & 0x00FF) as u8;
                 self.inc_pc();
             }
@@ -333,9 +339,21 @@ impl CHIP8 {
             self.s_timer -= 1;
         }
     }
-    
-    pub fn load_rom(filepath: &str) {
 
+    pub fn load_rom(&mut self, filepath: &str) {
+        if let Ok(rom) = fs::read(filepath) {
+            println!("{}", rom.len());
+            for (i, byte) in rom.iter().enumerate() {
+                self.memory[i + 0x200] = *byte;
+            }
+            self.is_rom_loaded = true;
+        } else {
+            panic!("Failed to read file! {}", filepath);
+        }
+    }
+
+    pub fn get_gfx(&self) -> &[u8; 2048] {
+        &self.gfx
     }
 }
 
