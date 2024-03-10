@@ -342,7 +342,7 @@ impl CHIP8 {
 
     pub fn load_rom(&mut self, filepath: &str) {
         if let Ok(rom) = fs::read(filepath) {
-            println!("{}", rom.len());
+            //println!("{}", rom.len());
             for (i, byte) in rom.iter().enumerate() {
                 self.memory[i + 0x200] = *byte;
             }
