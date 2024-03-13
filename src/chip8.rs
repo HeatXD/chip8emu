@@ -69,8 +69,8 @@ impl Display {
         self.gfx[x + y * 64] == 1
     }
 
-    fn set_pixel(&mut self, x: usize, y: usize, old: bool) {
-        self.gfx[x + y * 64] = old as u8;
+    fn set_pixel(&mut self, x: usize, y: usize, state: bool) {
+        self.gfx[x + y * 64] = state as u8;
         self.draw_happend = true;
     }
     
