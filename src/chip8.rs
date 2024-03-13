@@ -30,12 +30,15 @@ const FONTSET: [u8; 80] = [
 
 struct Display {
     gfx: [u8; 64 * 32],
-    draw_happend: bool
+    draw_happend: bool,
 }
 
 impl Default for Display {
     fn default() -> Self {
-        Self { gfx: [0; 64 * 32], draw_happend: false }
+        Self {
+            gfx: [0; 64 * 32],
+            draw_happend: false,
+        }
     }
 }
 
@@ -46,7 +49,7 @@ impl Display {
 
         let len = sprite.len();
         let mut col = false;
-        
+
         for j in 0..len {
             let row = sprite[j];
             for i in 0..8 {
@@ -80,7 +83,7 @@ impl Display {
         self.gfx[x + y * 64] = state as u8;
         self.draw_happend = true;
     }
-    
+
     fn clear(&mut self) {
         *self = Self::default()
     }
@@ -93,7 +96,7 @@ pub struct CHIP8 {
     index: u16,         // index register
     pc: u16,            // program counter
 
-    display: Display,// graphics
+    display: Display, // graphics
 
     d_timer: u8, // delay timer
     s_timer: u8, // sound timer
@@ -335,9 +338,10 @@ impl CHIP8 {
                 let reg_y = self.regs[((self.opcode & 0x00F0) >> 4) as usize] as usize;
                 let height = (self.opcode & 0x000F) as usize;
 
-                let sprite = &self.memory[self.index as usize..(self.index + height as u16) as usize];
+                let sprite =
+                    &self.memory[self.index as usize..(self.index + height as u16) as usize];
                 let col = self.display.display_sprite(reg_x, reg_y, sprite);
-                
+
                 // Make sure to reset the collision flag
                 self.regs[0xF] = col as u8;
                 self.inc_pc();
@@ -380,8 +384,8 @@ impl CHIP8 {
                             }
                         }
 
-                        if !key_pressed {
-                            return;
+                        if key_pressed {
+                            self.pc -= 2;
                         }
                     }
                     0x15 => self.d_timer = self.regs[x], // Set delay timer = Vx.
@@ -469,7 +473,6 @@ impl CHIP8 {
     pub fn did_beep(&self) -> bool {
         self.did_beep
     }
-
 }
 
 struct Opcode;
