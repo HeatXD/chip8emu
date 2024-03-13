@@ -3,7 +3,7 @@
 // https://www.youtube.com/watch?v=YHkBgR6yvbY
 
 use core::panic;
-use std::fs;
+use std::{fs, time::SystemTime};
 
 use macroquad::rand::{rand, srand};
 
@@ -51,8 +51,7 @@ pub struct CHIP8 {
 impl Default for CHIP8 {
     fn default() -> Self {
         // seed rand
-        srand(1);
-
+        srand(std::time::SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs());
         let mut memory: [u8; 4096] = [0; 4096];
         // load the fontset into memory
         memory[0..80].copy_from_slice(&FONTSET);
