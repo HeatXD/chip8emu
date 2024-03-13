@@ -4,7 +4,7 @@
 - [x] IBM logo
 - [x] Corax+ opcode test
 - [x] Flags test
-- [ ] Quirks test
+- [x] Quirks test
 - [ ] Keypad test
 - [x] Beep test (get a better buzzer)
 
