@@ -4,9 +4,7 @@ use std::env;
 
 use chip8::CHIP8;
 use macroquad::{
-    audio::{
-        load_sound, play_sound, stop_sound, PlaySoundParams,
-    },
+    audio::{load_sound, play_sound, stop_sound, PlaySoundParams},
     prelude::*,
 };
 
@@ -48,22 +46,26 @@ async fn main() {
     let texture = Texture2D::from_image(&image);
     texture.set_filter(FilterMode::Nearest);
 
-    // setup chip8 and load rom
+    // setup chip8
     let mut cpu = CHIP8::default();
+    cpu.set_cycle_count(10);
+    // load rom
     cpu.load_rom(&args[1]);
 
     while !is_quit_requested() {
-        
-        cpu.cycle();
+        cpu.run(
+            |cpu, image, texture| {
+                clear_background(WHITE);
+                update_image(&cpu, image, &texture);
+            },
+            &mut image,
+            &texture,
+        );
+
         // update timers
         cpu.advance_frame();
-        // update keys
-        for (idx, key) in KEYS.iter().enumerate() {
-            cpu.set_key(idx, is_key_down(*key));
-        }
-        
+
         if cpu.did_beep() {
-            // stop if its still playing
             stop_sound(&beep);
             play_sound(
                 &beep,
@@ -74,12 +76,11 @@ async fn main() {
             );
         }
 
-        clear_background(WHITE);
-
-        if cpu.did_draw() {
-            update_image(&cpu, &mut image, &texture);
+        // update keys
+        for (idx, key) in KEYS.iter().enumerate() {
+            cpu.set_key(idx, is_key_down(*key));
         }
-        
+
         draw_texture_ex(
             &texture,
             0.,
@@ -91,7 +92,7 @@ async fn main() {
             },
         );
 
-        next_frame().await
+        next_frame().await;
     }
 }
 

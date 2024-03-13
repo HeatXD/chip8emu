@@ -4,7 +4,10 @@
 use core::panic;
 use std::{fs, time::SystemTime};
 
-use macroquad::rand::{rand, srand};
+use macroquad::{
+    rand::{rand, srand},
+    texture::{Image, Texture2D},
+};
 
 const FONTSET: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -25,6 +28,57 @@ const FONTSET: [u8; 80] = [
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
 
+struct Display {
+    gfx: [u8; 64 * 32],
+    draw_happend: bool
+}
+
+impl Default for Display {
+    fn default() -> Self {
+        Self { gfx: [0; 64 * 32], draw_happend: false }
+    }
+}
+
+impl Display {
+    fn display_sprite(&mut self, reg_x: usize, reg_y: usize, sprite: &[u8]) -> bool {
+        let len = sprite.len();
+        let mut col = false;
+        for j in 0..len {
+            let row = sprite[j];
+            for i in 0..8 {
+                let new = row >> (7 - i) & 0x01;
+                if new == 1 {
+                    let xi = reg_x + i;
+                    let yj = reg_y + j;
+                    if xi > 63 || yj > 31 {
+                        // not handling it should clip it?
+                        continue;
+                    }
+                    let old = self.get_pixel(xi, yj);
+                    if old {
+                        col = true;
+                    }
+                    self.set_pixel(xi, yj, (new == 1) ^ old);
+                }
+            }
+        }
+        return col;
+    }
+
+    fn get_pixel(&self, x: usize, y: usize) -> bool {
+        self.gfx[x + y * 64] == 1
+    }
+
+    fn set_pixel(&mut self, x: usize, y: usize, old: bool) {
+        self.gfx[x + y * 64] = old as u8;
+        self.draw_happend = true;
+    }
+    
+    fn clear(&mut self) {
+        *self = Self::default()
+    }
+}
+
 pub struct CHIP8 {
     opcode: u16,        // every current_opcode is 2 bytes
     memory: [u8; 4096], // 4k memory
@@ -32,7 +86,7 @@ pub struct CHIP8 {
     index: u16,         // index register
     pc: u16,            // program counter
 
-    gfx: [u8; 64 * 32], // graphics
+    display: Display,// graphics
 
     d_timer: u8, // delay timer
     s_timer: u8, // sound timer
@@ -43,8 +97,9 @@ pub struct CHIP8 {
     keys: [u8; 16], // pressed keyboard keys
 
     is_rom_loaded: bool,
-    draw_happend: bool,
     did_beep: bool,
+
+    cycles_per_frame: u32,
 }
 
 impl Default for CHIP8 {
@@ -66,15 +121,15 @@ impl Default for CHIP8 {
             regs: [0; 16],
             index: 0,
             pc: 0x200, // most chip8 programs start at 0x200
-            gfx: [0; 64 * 32],
+            display: Display::default(),
             d_timer: 0,
             s_timer: 0,
             stack: [0; 16],
             sp: 0,
             keys: [0; 16],
             is_rom_loaded: false,
-            draw_happend: false,
             did_beep: false,
+            cycles_per_frame: 10,
         }
     }
 }
@@ -84,7 +139,22 @@ impl CHIP8 {
         self.pc += 2; // every instruction is 2 bytes hence why we inc by 2
     }
 
-    pub fn cycle(&mut self) {
+    pub fn run(
+        &mut self,
+        draw: fn(&mut Self, img: &mut Image, tex: &Texture2D),
+        img: &mut Image,
+        tex: &Texture2D,
+    ) {
+        for _ in 0..self.cycles_per_frame {
+            self.cycle();
+
+            if self.display.draw_happend {
+                (draw)(self, img, tex);
+            }
+        }
+    }
+
+    fn cycle(&mut self) {
         if self.pc > 0xFFF {
             panic!("Opcode out of range! Program Error!");
         }
@@ -93,7 +163,7 @@ impl CHIP8 {
             return;
         }
 
-        self.draw_happend = false;
+        self.display.draw_happend = false;
         self.did_beep = false;
 
         self.opcode = (self.memory[self.pc as usize] as u16) << 8
@@ -108,9 +178,9 @@ impl CHIP8 {
                 match self.opcode {
                     0x0E0 => {
                         // clear the screen
-                        self.gfx = [0; 64 * 32];
+                        self.display.clear();
                         // set draw flag for the frame to true
-                        self.draw_happend = true;
+                        self.display.draw_happend = true;
                     }
                     0x0EE => {
                         // return from subroutine
@@ -174,48 +244,51 @@ impl CHIP8 {
                 let mode = self.opcode & 0x000F;
 
                 match mode {
-                    0x0 => self.regs[x] = self.regs[y],  // Set Vx = Vy.
-                    0x1 => self.regs[x] |= self.regs[y], // Set Vx = Vx OR Vy.
-                    0x2 => self.regs[x] &= self.regs[y], // Set Vx = Vx AND Vy.
-                    0x3 => self.regs[x] ^= self.regs[y], // Set Vx = Vx XOR Vy.
+                    0x0 => self.regs[x] = self.regs[y], // Set Vx = Vy.
+                    0x1 => {
+                        self.regs[x] |= self.regs[y];
+                        self.regs[0xF] = 0;
+                    } // Set Vx = Vx OR Vy.
+                    0x2 => {
+                        self.regs[x] &= self.regs[y];
+                        self.regs[0xF] = 0;
+                    } // Set Vx = Vx AND Vy.
+                    0x3 => {
+                        self.regs[x] ^= self.regs[y];
+                        self.regs[0xF] = 0;
+                    } // Set Vx = Vx XOR Vy.
                     0x4 => {
                         // Set Vx = Vx + Vy, set VF = carry.
                         let mut sum = self.regs[x] as u16;
                         sum += self.regs[y] as u16;
                         self.regs[x] = sum as u8;
                         // set flag register
-                        self.regs[0xF] = if sum > 255 { 1 } else { 0 };
+                        self.regs[0xF] = (sum > 255) as u8;
                     }
                     0x5 => {
                         // Set Vx = Vx - Vy, set VF = NOT borrow.
                         let rx = self.regs[x];
-                        let ry = self.regs[y];
-
                         self.regs[x] -= self.regs[y];
-
                         // set flag register
-                        if rx < ry {
-                            self.regs[0xF] = 0;
-                        } else {
-                            self.regs[0xF] = 1;
-                        }
+                        self.regs[0xF] = !(rx < self.regs[y]) as u8;
                     }
                     0x6 => {
                         // Set Vx = Vx SHR 1.
-                        let rx = self.regs[x]; 
-                        self.regs[x] >>= 1;
+                        let rx = self.regs[x];
+                        self.regs[x] = self.regs[y] >> 1;
                         self.regs[0xF] = rx & 0x1;
                     }
                     0x7 => {
+                        let rx = self.regs[y] - self.regs[x];
                         // Set Vx = Vy - Vx, set VF = NOT borrow.
                         self.regs[x] = self.regs[y] - self.regs[x];
-                        self.regs[0xF] = if self.regs[y] > self.regs[x] { 1 } else { 0 };
+                        self.regs[0xF] = (self.regs[y] > rx) as u8;
                     }
                     0xE => {
                         // Set Vx = Vx SHL 1.
                         let rx = self.regs[x];
-                        self.regs[x] <<= 1;
-                        self.regs[0xF] = if rx & 0x80 != 0 { 1 } else { 0 };
+                        self.regs[x] = self.regs[y] << 1;
+                        self.regs[0xF] = (rx & 0x80 != 0) as u8;
                     }
                     _ => (),
                 }
@@ -251,34 +324,15 @@ impl CHIP8 {
             }
             Opcode::DISPLAY_DXYN => {
                 // Display n-byte sprite starting at memory location I at (Vx, Vy), set VF = collision.
-                let reg_x: u16 = self.regs[((self.opcode & 0x0F00) >> 8) as usize] as u16;
-                let reg_y: u16 = self.regs[((self.opcode & 0x00F0) >> 4) as usize] as u16;
-                let height = self.opcode & 0x000F;
+                let reg_x = self.regs[((self.opcode & 0x0F00) >> 8) as usize] as usize;
+                let reg_y = self.regs[((self.opcode & 0x00F0) >> 4) as usize] as usize;
+                let height = (self.opcode & 0x000F) as usize;
 
-                let mut y = 0;
-                while y < height {
-                    let pixel = self.memory[(self.index + y) as usize];
-                    let mut x = 0;
-                    while x < 8 {
-                        let msb = 0x80;
-                        if pixel & (msb >> x) != 0 {
-                            let tx = (reg_x + x) % 64;
-                            let ty = (reg_y + y) % 32;
-
-                            let idx = (tx + ty * 64) as usize;
-                            self.gfx[idx] ^= 1;
-
-                            if self.gfx[idx] == 0 {
-                                self.regs[0xF] = 1;
-                            }
-                        }
-                        x += 1;
-                    }
-                    y += 1;
-                }
-                // set draw flag for the frame to true
-                self.draw_happend = true;
-
+                let sprite = &self.memory[self.index as usize..(self.index + height as u16) as usize];
+                let col = self.display.display_sprite(reg_x, reg_y, sprite);
+                
+                // Make sure to reset the collision flag
+                self.regs[0xF] = col as u8;
                 self.inc_pc();
             }
             Opcode::SKIP_EX => {
@@ -287,13 +341,13 @@ impl CHIP8 {
                 match mode {
                     // Skip next instruction if key with the value of Vx is pressed.
                     0x9E => {
-                        if self.keys[self.regs[x] as usize] == 1 {
+                        if self.keys[(self.regs[x] & 0xF) as usize] == 1 {
                             self.inc_pc();
                         }
                     }
                     // Skip next instruction if key with the value of Vx is not pressed.
                     0xA1 => {
-                        if self.keys[self.regs[x] as usize] != 1 {
+                        if self.keys[(self.regs[x] & 0xF) as usize] != 1 {
                             self.inc_pc();
                         }
                     }
@@ -304,6 +358,7 @@ impl CHIP8 {
             Opcode::MISC_FX => {
                 let x = ((self.opcode & 0x0F00) >> 8) as usize;
                 let mode = self.opcode & 0x00FF;
+                let mut idx_op = false;
 
                 match mode {
                     0x07 => self.regs[x] = self.d_timer, // Set Vx = delay timer value.
@@ -328,7 +383,7 @@ impl CHIP8 {
                     0x29 => {
                         // Set I = location of sprite for digit Vx.
                         if self.regs[x] < 16 {
-                            self.index = (self.regs[x] * 0x5) as u16;
+                            self.index = (self.regs[x] * 0x5) as u16 & 0xF;
                         }
                     }
                     0x33 => {
@@ -340,22 +395,29 @@ impl CHIP8 {
                     }
                     0x55 => {
                         // Store registers V0 through Vx in memory starting at location I.
-                        let mut i: usize = 0;
-                        while i <= x {
-                            self.memory[i + self.index as usize] = self.regs[i];
-                            i += 1;
+                        let mut idx: usize = 0;
+                        while idx <= x {
+                            self.memory[idx + self.index as usize] = self.regs[idx];
+                            idx += 1;
                         }
+                        idx_op = true;
                     }
                     0x65 => {
                         // Read registers V0 through Vx from memory starting at location I.
-                        let mut i: usize = 0;
-                        while i <= x {
-                            self.regs[i] = self.memory[i + self.index as usize];
-                            i += 1;
+                        let mut idx: usize = 0;
+                        while idx <= x {
+                            self.regs[idx] = self.memory[idx + self.index as usize];
+                            idx += 1;
                         }
+                        idx_op = true;
                     }
                     _ => (),
                 }
+
+                if idx_op {
+                    self.index += (x + 1) as u16;
+                }
+
                 self.inc_pc();
             }
             _ => (),
@@ -385,21 +447,22 @@ impl CHIP8 {
         }
     }
 
-    pub fn get_gfx(&self) -> &[u8; 2048] {
-        &self.gfx
+    pub fn get_gfx(&self) -> &[u8; 64 * 32] {
+        &self.display.gfx
     }
 
-    pub fn did_draw(&self) -> bool {
-        self.draw_happend
+    pub fn set_key(&mut self, idx: usize, state: bool) {
+        self.keys[idx] = state as u8;
+    }
+
+    pub fn set_cycle_count(&mut self, num: u32) {
+        self.cycles_per_frame = num;
     }
 
     pub fn did_beep(&self) -> bool {
         self.did_beep
     }
 
-    pub fn set_key(&mut self, idx: usize, state: bool) {
-        self.keys[idx] = state as u8;
-    }
 }
 
 struct Opcode;
