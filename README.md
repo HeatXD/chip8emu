@@ -3,7 +3,7 @@
 - [x] CHIP-8 splash screen
 - [x] IBM logo
 - [x] Corax+ opcode test
-- [ ] Flags test
+- [x] Flags test
 - [ ] Quirks test
 - [ ] Keypad test
 - [x] Beep test (get a better buzzer)

@@ -1,6 +1,5 @@
 // https://multigesture.net/articles/how-to-write-an-emulator-chip-8-interpreter/
 // http://devernay.free.fr/hacks/chip8/C8TECH10.HTM
-// https://www.youtube.com/watch?v=YHkBgR6yvbY
 
 use core::panic;
 use std::{fs, time::SystemTime};
@@ -175,38 +174,48 @@ impl CHIP8 {
                 let mode = self.opcode & 0x000F;
 
                 match mode {
-                    0 => self.regs[x] = self.regs[y],  // Set Vx = Vy.
-                    1 => self.regs[x] |= self.regs[y], // Set Vx = Vx OR Vy.
-                    2 => self.regs[x] &= self.regs[y], // Set Vx = Vx AND Vy.
-                    3 => self.regs[x] ^= self.regs[y], // Set Vx = Vx XOR Vy.
-                    4 => {
+                    0x0 => self.regs[x] = self.regs[y],  // Set Vx = Vy.
+                    0x1 => self.regs[x] |= self.regs[y], // Set Vx = Vx OR Vy.
+                    0x2 => self.regs[x] &= self.regs[y], // Set Vx = Vx AND Vy.
+                    0x3 => self.regs[x] ^= self.regs[y], // Set Vx = Vx XOR Vy.
+                    0x4 => {
                         // Set Vx = Vx + Vy, set VF = carry.
                         let mut sum = self.regs[x] as u16;
                         sum += self.regs[y] as u16;
+                        self.regs[x] = sum as u8;
                         // set flag register
                         self.regs[0xF] = if sum > 255 { 1 } else { 0 };
-                        self.regs[x] = (sum & 0x00FF) as u8;
                     }
-                    5 => {
+                    0x5 => {
                         // Set Vx = Vx - Vy, set VF = NOT borrow.
-                        // set flag register
-                        self.regs[0xF] = if self.regs[x] > self.regs[y] { 1 } else { 0 };
+                        let rx = self.regs[x];
+                        let ry = self.regs[y];
+
                         self.regs[x] -= self.regs[y];
+
+                        // set flag register
+                        if rx < ry {
+                            self.regs[0xF] = 0;
+                        } else {
+                            self.regs[0xF] = 1;
+                        }
                     }
-                    6 => {
+                    0x6 => {
                         // Set Vx = Vx SHR 1.
-                        self.regs[0xF] = self.regs[x] & 0x1;
+                        let rx = self.regs[x]; 
                         self.regs[x] >>= 1;
+                        self.regs[0xF] = rx & 0x1;
                     }
-                    7 => {
+                    0x7 => {
                         // Set Vx = Vy - Vx, set VF = NOT borrow.
-                        self.regs[0xF] = if self.regs[y] > self.regs[x] { 1 } else { 0 };
                         self.regs[x] = self.regs[y] - self.regs[x];
+                        self.regs[0xF] = if self.regs[y] > self.regs[x] { 1 } else { 0 };
                     }
-                    14 => {
+                    0xE => {
                         // Set Vx = Vx SHL 1.
-                        self.regs[0xF] = if self.regs[x] & 0x80 != 0 { 1 } else { 0 };
+                        let rx = self.regs[x];
                         self.regs[x] <<= 1;
+                        self.regs[0xF] = if rx & 0x80 != 0 { 1 } else { 0 };
                     }
                     _ => (),
                 }
