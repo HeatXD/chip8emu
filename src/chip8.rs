@@ -51,7 +51,12 @@ pub struct CHIP8 {
 impl Default for CHIP8 {
     fn default() -> Self {
         // seed rand
-        srand(std::time::SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs());
+        srand(
+            std::time::SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        );
         let mut memory: [u8; 4096] = [0; 4096];
         // load the fontset into memory
         memory[0..80].copy_from_slice(&FONTSET);
@@ -346,15 +351,15 @@ impl CHIP8 {
             }
             _ => (),
         }
+    }
 
+    pub fn advance_frame(&mut self) {
         if self.d_timer > 0 {
             self.d_timer -= 1;
         }
 
         if self.s_timer > 0 {
-            if self.s_timer == 1 {
-                self.did_beep = true;
-            }
+            self.did_beep = true;
             self.s_timer -= 1;
         }
     }

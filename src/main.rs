@@ -53,12 +53,15 @@ async fn main() {
     cpu.load_rom(&args[1]);
 
     while !is_quit_requested() {
+        
         cpu.cycle();
-
+        // update timers
+        cpu.advance_frame();
+        // update keys
         for (idx, key) in KEYS.iter().enumerate() {
             cpu.set_key(idx, is_key_down(*key));
         }
-
+        
         if cpu.did_beep() {
             // stop if its still playing
             stop_sound(&beep);
