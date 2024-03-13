@@ -48,7 +48,7 @@ async fn main() {
 
     // setup chip8
     let mut cpu = CHIP8::default();
-    cpu.set_cycle_count(10);
+    cpu.set_cycle_count(8);
     // load rom
     cpu.load_rom(&args[1]);
 

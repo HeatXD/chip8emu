@@ -40,9 +40,13 @@ impl Default for Display {
 }
 
 impl Display {
-    fn display_sprite(&mut self, reg_x: usize, reg_y: usize, sprite: &[u8]) -> bool {
+    fn display_sprite(&mut self, mut reg_x: usize, mut reg_y: usize, sprite: &[u8]) -> bool {
+        reg_x = reg_x % 64;
+        reg_y = reg_y % 32;
+
         let len = sprite.len();
         let mut col = false;
+        
         for j in 0..len {
             let row = sprite[j];
             for i in 0..8 {
@@ -50,14 +54,17 @@ impl Display {
                 if new == 1 {
                     let xi = reg_x + i;
                     let yj = reg_y + j;
+
+                    // not handling it should clip it.
                     if xi > 63 || yj > 31 {
-                        // not handling it should clip it?
                         continue;
                     }
+
                     let old = self.get_pixel(xi, yj);
                     if old {
                         col = true;
                     }
+
                     self.set_pixel(xi, yj, (new == 1) ^ old);
                 }
             }
