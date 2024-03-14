@@ -6,7 +6,7 @@
 - [x] Flags test
 - [x] Quirks test
 - [x] Keypad test
-- [x] Beep test (get a better buzzer)
+- [x] Beep test (get a better buzzer wavefom)
 
 ### this is a personal project to learn more about emulation.
 
