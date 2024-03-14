@@ -1,6 +1,3 @@
-// https://multigesture.net/articles/how-to-write-an-emulator-chip-8-interpreter/
-// http://devernay.free.fr/hacks/chip8/C8TECH10.HTM
-
 use core::panic;
 use std::{fs, time::SystemTime};
 
@@ -104,7 +101,8 @@ pub struct CHIP8 {
     stack: [u16; 16], // 16 2 byte long adressess
     sp: u16,          // stack pointer
 
-    keys: [u8; 16], // pressed keyboard keys
+    current_keys: [u8; 16], // current pressed keyboard keys
+    last_keys: [u8; 16], // last press keyboard keys
 
     is_rom_loaded: bool,
     did_beep: bool,
@@ -136,7 +134,8 @@ impl Default for CHIP8 {
             s_timer: 0,
             stack: [0; 16],
             sp: 0,
-            keys: [0; 16],
+            current_keys: [0; 16],
+            last_keys: [0; 16],
             is_rom_loaded: false,
             did_beep: false,
             cycles_per_frame: 10,
@@ -352,13 +351,13 @@ impl CHIP8 {
                 match mode {
                     // Skip next instruction if key with the value of Vx is pressed.
                     0x9E => {
-                        if self.keys[(self.regs[x] & 0xF) as usize] == 1 {
+                        if self.current_keys[(self.regs[x] & 0xF) as usize] == 1 {
                             self.inc_pc();
                         }
                     }
                     // Skip next instruction if key with the value of Vx is not pressed.
                     0xA1 => {
-                        if self.keys[(self.regs[x] & 0xF) as usize] != 1 {
+                        if self.current_keys[(self.regs[x] & 0xF) as usize] != 1 {
                             self.inc_pc();
                         }
                     }
@@ -374,18 +373,17 @@ impl CHIP8 {
                 match mode {
                     0x07 => self.regs[x] = self.d_timer, // Set Vx = delay timer value.
                     0x0A => {
-                        let mut key_pressed = false;
+                        let mut key_released = false;
 
-                        for (i, v) in self.keys.iter().enumerate() {
-                            if *v != 0 {
-                                self.regs[x] = i as u8;
-                                key_pressed = true;
-                                break;
+                        for idx in 0..self.current_keys.len() {
+                            if (self.last_keys[idx] & !self.current_keys[idx]) != 0{
+                                self.regs[x] = idx as u8;
+                                key_released = true;
                             }
                         }
 
-                        if key_pressed {
-                            self.pc -= 2;
+                        if !key_released {
+                            return;
                         }
                     }
                     0x15 => self.d_timer = self.regs[x], // Set delay timer = Vx.
@@ -444,6 +442,9 @@ impl CHIP8 {
             self.did_beep = true;
             self.s_timer -= 1;
         }
+
+        self.last_keys = self.current_keys;
+        self.current_keys = [0; 16];
     }
 
     pub fn load_rom(&mut self, filepath: &str) {
@@ -463,7 +464,7 @@ impl CHIP8 {
     }
 
     pub fn set_key(&mut self, idx: usize, state: bool) {
-        self.keys[idx] = state as u8;
+        self.current_keys[idx] = state as u8;
     }
 
     pub fn set_cycle_count(&mut self, num: u32) {
